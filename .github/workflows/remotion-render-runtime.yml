@@ -1,0 +1,50 @@
+name: Prepare supported Remotion render runtime
+on:
+  push:
+    paths:
+      - '.github/workflows/remotion-render-runtime.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install supported rendering dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir renderer-setup
+          cd renderer-setup
+          npm init -y
+          npm install --save-exact remotion@4.0.526 @remotion/cli@4.0.526 @remotion/google-fonts@4.0.526 react@19.0.0 react-dom@19.0.0
+          npx remotion browser ensure
+          mkdir -p render-assets
+          node <<'NODE'
+          const fs = require('node:fs');
+          (async () => {
+            for (const [family, weight] of [['Almendra','700'], ['Inter','400'], ['Inter','500'], ['Inter','600']]) {
+              const info = require('@remotion/google-fonts/'+family).getInfo();
+              const url = info.fonts.normal[weight].latin;
+              const response = await fetch(url);
+              if (!response.ok) throw new Error(url+': '+response.status);
+              fs.writeFileSync('render-assets/'+family+'-'+weight+'.woff2', Buffer.from(await response.arrayBuffer()));
+            }
+          })().catch(e => {console.error(e); process.exit(1)});
+          NODE
+          tar -czf ../supported-remotion-runtime.tar.gz .remotion render-assets
+          cd ..
+          sha256sum supported-remotion-runtime.tar.gz > supported-remotion-runtime.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supported-remotion-runtime
+          path: |
+            supported-remotion-runtime.tar.gz
+            supported-remotion-runtime.sha256
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
