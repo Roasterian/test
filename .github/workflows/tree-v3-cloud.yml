@@ -1,0 +1,121 @@
+name: Cloud native animation revision
+on:
+  push:
+    paths:
+      - '.github/workflows/tree-v3-cloud.yml'
+permissions:
+  contents: read
+jobs:
+  picture:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        part: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      PART: ${{ matrix.part }}
+      TASK: trees-v3-cloud-20260922
+      CLIENT_PUBLIC: 6f7eddaab168c3b3f29c3cd13fe7e300ef73cc8a174349b4c7803ea111923605
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Create this runner's temporary encryption key
+        run: |
+          python3 -m pip install --quiet cryptography
+          mkdir -p handshake private sealed
+          python3 <<'PY'
+          import os,json
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+          from cryptography.hazmat.primitives import serialization
+          k=X25519PrivateKey.generate()
+          Path('private/key').write_bytes(k.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()))
+          os.chmod('private/key',0o600)
+          pub=k.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
+          Path('handshake/public.json').write_text(json.dumps({'part':int(os.environ['PART']),'task':os.environ['TASK'],'public':pub.hex()}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v3-public-key-${{ matrix.part }}
+          path: handshake/public.json
+          retention-days: 1
+      - name: Receive and authenticate encrypted render input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 <<'PY'
+          import os,time,json,base64,hashlib,io,zipfile,urllib.request,urllib.error
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          tag=os.environ['TASK'].encode();part=os.environ['PART'];payload=None
+          endpoint='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/render/trees-v3-envelope.json'
+          for attempt in range(100):
+              try:
+                  req=urllib.request.Request(endpoint+'?ref=main&t='+str(int(time.time())),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'cloud-render-input'})
+                  with urllib.request.urlopen(req,timeout=20) as r: meta=json.load(r)
+                  value=json.loads(base64.b64decode(meta['content']))
+                  if value['task']==os.environ['TASK'] and part in value['envelopes']:
+                      payload=value;break
+              except (urllib.error.HTTPError,urllib.error.URLError,KeyError):pass
+              time.sleep(12)
+          if payload is None:raise RuntimeError('No authenticated input received before timeout')
+          if payload['clientPublic']!=os.environ['CLIENT_PUBLIC']:raise RuntimeError('Client public key mismatch')
+          private=X25519PrivateKey.from_private_bytes(Path('private/key').read_bytes())
+          shared=private.exchange(X25519PublicKey.from_public_bytes(bytes.fromhex(payload['clientPublic'])))
+          wrapkey=hashlib.sha256(shared+tag+b':wrap').digest()
+          envelope=base64.b64decode(payload['envelopes'][part])
+          contentkey=AESGCM(wrapkey).decrypt(envelope[:12],envelope[12:],tag)
+          with urllib.request.urlopen(payload['url'],timeout=60) as r:cipher=r.read()
+          if hashlib.sha256(cipher).hexdigest()!=payload['sha256']:raise RuntimeError('Input checksum mismatch')
+          data=AESGCM(contentkey).decrypt(cipher[:12],cipher[12:],tag)
+          with zipfile.ZipFile(io.BytesIO(data)) as z:
+              for name in z.namelist():
+                  if Path(name).is_absolute() or '..' in Path(name).parts:raise RuntimeError('Unsafe archive path')
+              z.extractall('render-project')
+          Path('private/result-key').write_bytes(hashlib.sha256(shared+tag+b':result').digest())
+          print('Encrypted input authenticated; no source or narration was published.')
+          PY
+      - name: Install matched native renderer and verify typography
+        working-directory: render-project
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx remotion browser ensure
+          mkdir -p .tools public/fonts qa
+          curl --fail --location --retry 3 'https://deb.debian.org/debian/pool/main/f/fonts-lato/fonts-lato_2.015-1_all.deb' -o .tools/lato.deb
+          dpkg-deb -x .tools/lato.deb .tools/fonts
+          cp .tools/fonts/usr/share/fonts/truetype/lato/Lato-Heavy.ttf public/fonts/
+          cp .tools/fonts/usr/share/fonts/truetype/lato/Lato-Semibold.ttf public/fonts/
+          printf '4ce7ec20cd9c391b271b4149ad8cf5a71301d98965403f14fc5530d017146dbb  public/fonts/Lato-Heavy.ttf\n2dc5d31e2cf1e29f3430eb2dfa1ba9911e08ee401b61dd12f40e0acb047a17a3  public/fonts/Lato-Semibold.ttf\n' | sha256sum -c -
+          npx tsc --noEmit
+          node scripts/sprites.mjs
+      - name: Render assigned native 4K 60 fps frames
+        working-directory: render-project
+        run: node scripts/cloud-render.mjs
+      - name: Seal the rendered picture and verification record
+        run: |
+          python3 <<'PY'
+          import os,io,zipfile
+          from pathlib import Path
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          b=io.BytesIO()
+          with zipfile.ZipFile(b,'w',zipfile.ZIP_STORED) as z:
+              z.write('render-project/part/picture.mp4','picture.mp4')
+              z.write('render-project/part/manifest.json','manifest.json')
+          nonce=os.urandom(12)
+          aad=(os.environ['TASK']+':'+os.environ['PART']).encode()
+          output=nonce+AESGCM(Path('private/result-key').read_bytes()).encrypt(nonce,b.getvalue(),aad)
+          Path('sealed/part-'+os.environ['PART']+'.aesgcm').write_bytes(output)
+          print('Sealed output ready',len(output))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v3-sealed-picture-${{ matrix.part }}
+          path: sealed/*.aesgcm
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
