@@ -1,0 +1,58 @@
+name: Native Remotion botanical motion study
+on:
+  push:
+    branches: ['botanical-motion-study']
+    paths: ['botanical-motion-study/**', '.github/workflows/botanical-motion-study.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: botanical-motion-study
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install native Remotion
+        run: npm install --no-audit --no-fund
+      - name: Install supported browser
+        run: npx remotion browser ensure
+      - name: Build original sound layer
+        run: python3 sound.py
+      - name: Type-check sources
+        run: npx tsc --noEmit
+      - name: Native 4K60 render
+        run: npm run render
+      - name: Inspect output streams
+        run: |
+          if ! command -v ffprobe >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y ffmpeg; fi
+          ffprobe -v error -show_streams -show_format -of json out/Botanical_Motion_Study_4K60.mp4 > out/export-metadata.json
+          ffmpeg -v error -i out/Botanical_Motion_Study_4K60.mp4 -f null - 2>out/decode-errors.txt
+          test ! -s out/decode-errors.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: botanical-motion-study-review
+          path: botanical-motion-study/out/
+          retention-days: 3
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: botanical-motion-study-editable
+          path: |
+            botanical-motion-study/src/
+            botanical-motion-study/public/
+            botanical-motion-study/package.json
+            botanical-motion-study/package-lock.json
+            botanical-motion-study/tsconfig.json
+            botanical-motion-study/render.mjs
+            botanical-motion-study/sound.py
+            botanical-motion-study/sound-report.json
+            botanical-motion-study/README.md
+          retention-days: 3
+          if-no-files-found: error
