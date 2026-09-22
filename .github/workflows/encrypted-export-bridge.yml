@@ -1,0 +1,30 @@
+name: Encrypted export handoff
+on:
+  push:
+    paths:
+      - '.github/workflows/encrypted-export-bridge.yml'
+permissions:
+  contents: read
+jobs:
+  handoff:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Download sealed test artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir sealed
+          # The endpoint emits AES-256-GCM ciphertext only.
+          # No narration, project source, or decryption key is stored in this repository.
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            'https://terrorism-item-electron-castle.trycloudflare.com/sealed/03' \
+            --output sealed/proof.aesgcm
+          sha256sum sealed/proof.aesgcm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sealed-export-proof
+          path: sealed/proof.aesgcm
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
