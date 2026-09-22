@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Create this runner's temporary encryption key
+      - name: Create temporary encryption identity
         run: |
           python3 -m pip install --quiet cryptography gdown
           mkdir -p handshake private sealed
@@ -42,7 +42,7 @@ jobs:
           name: v3-public-key-${{ matrix.part }}
           path: handshake/public.json
           retention-days: 1
-      - name: Receive and authenticate encrypted render input
+      - name: Authenticate encrypted cloud input
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -86,14 +86,19 @@ jobs:
                   if Path(name).is_absolute() or '..' in Path(name).parts:raise RuntimeError('Unsafe archive path')
               z.extractall('render-project')
           Path('private/result-key').write_bytes(hashlib.sha256(shared+tag+b':result').digest())
-          print('Encrypted input authenticated; no source or narration was published.')
+          print('Encrypted input authenticated.')
           PY
-      - name: Install matched native renderer and verify typography
+      - name: Install and preflight all native render tools
         working-directory: render-project
         run: |
           set -euo pipefail
           npm install --no-audit --no-fund
           npx remotion browser ensure
+          BIN="$PWD/node_modules/@remotion/compositor-linux-x64-gnu"
+          echo "$BIN" >> "$GITHUB_PATH"
+          export PATH="$BIN:$PATH"
+          ffmpeg -version
+          ffprobe -version
           mkdir -p .tools public/fonts qa
           curl --fail --location --retry 3 'https://deb.debian.org/debian/pool/main/f/fonts-lato/fonts-lato_2.015-1_all.deb' -o .tools/lato.deb
           dpkg-deb -x .tools/lato.deb .tools/fonts
@@ -102,29 +107,40 @@ jobs:
           printf '4ce7ec20cd9c391b271b4149ad8cf5a71301d98965403f14fc5530d017146dbb  public/fonts/Lato-Heavy.ttf\n2dc5d31e2cf1e29f3430eb2dfa1ba9911e08ee401b61dd12f40e0acb047a17a3  public/fonts/Lato-Semibold.ttf\n' | sha256sum -c -
           npx tsc --noEmit
           node scripts/sprites.mjs
-      - name: Render assigned native 4K 60 fps frames
+      - name: Render native 4K 60 fps picture
         working-directory: render-project
         run: node scripts/cloud-render.mjs
-      - name: Seal the rendered picture and verification record
+      - name: Seal picture and render records
+        if: always()
         run: |
           python3 <<'PY'
-          import os,io,zipfile
+          import os,io,zipfile,json
           from pathlib import Path
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          root=Path('render-project/part')
+          if not root.exists() or not Path('private/result-key').exists():raise SystemExit(0)
+          files=[p for p in root.rglob('*') if p.is_file() and p.suffix in ['.mp4','.json']]
+          if not files:raise SystemExit(0)
           b=io.BytesIO()
           with zipfile.ZipFile(b,'w',zipfile.ZIP_STORED) as z:
-              z.write('render-project/part/picture.mp4','picture.mp4')
-              z.write('render-project/part/manifest.json','manifest.json')
+              if (root/'picture.mp4').exists():
+                  z.write(root/'picture.mp4','picture.mp4')
+                  z.write(root/'manifest.json','manifest.json')
+              else:
+                  for p in files:z.write(p,p.relative_to(root).as_posix())
+                  z.writestr('recovery.json',json.dumps({'part':int(os.environ['PART']),'partial':True}))
+              if Path('render-project/package-lock.json').exists():z.write('render-project/package-lock.json','package-lock.json')
           nonce=os.urandom(12)
           aad=(os.environ['TASK']+':'+os.environ['PART']).encode()
           output=nonce+AESGCM(Path('private/result-key').read_bytes()).encrypt(nonce,b.getvalue(),aad)
           Path('sealed/part-'+os.environ['PART']+'.aesgcm').write_bytes(output)
-          print('Sealed output ready',len(output))
+          print('Sealed output bytes',len(output))
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: v3-sealed-picture-${{ matrix.part }}
           path: sealed/*.aesgcm
           retention-days: 1
           compression-level: 0
-          if-no-files-found: error
+          if-no-files-found: warn
