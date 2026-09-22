@@ -36,7 +36,7 @@ jobs:
             }
           })().catch(e => {console.error(e); process.exit(1)});
           NODE
-          tar -czf ../supported-remotion-runtime.tar.gz .remotion render-assets
+          tar -czf ../supported-remotion-runtime.tar.gz node_modules/.remotion render-assets
           cd ..
           sha256sum supported-remotion-runtime.tar.gz > supported-remotion-runtime.sha256
       - uses: actions/upload-artifact@v4
