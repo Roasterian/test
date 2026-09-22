@@ -8,7 +8,7 @@ permissions:
 jobs:
   picture:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -24,7 +24,7 @@ jobs:
           node-version: '22'
       - name: Create this runner's temporary encryption key
         run: |
-          python3 -m pip install --quiet cryptography
+          python3 -m pip install --quiet cryptography gdown
           mkdir -p handshake private sealed
           python3 <<'PY'
           import os,json
@@ -47,18 +47,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 <<'PY'
-          import os,time,json,base64,hashlib,io,zipfile,urllib.request,urllib.error
+          import os,time,json,base64,hashlib,io,zipfile,urllib.request,urllib.error,gdown
           from pathlib import Path
           from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
           tag=os.environ['TASK'].encode();part=os.environ['PART'];payload=None
+          own=json.loads(Path('handshake/public.json').read_text())['public']
           endpoint='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/render/trees-v3-envelope.json'
           for attempt in range(100):
               try:
                   req=urllib.request.Request(endpoint+'?ref=main&t='+str(int(time.time())),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'cloud-render-input'})
                   with urllib.request.urlopen(req,timeout=20) as r: meta=json.load(r)
                   value=json.loads(base64.b64decode(meta['content']))
-                  if value['task']==os.environ['TASK'] and part in value['envelopes']:
+                  if value['task']==os.environ['TASK'] and part in value['envelopes'] and value.get('workerPublic',{}).get(part)==own:
                       payload=value;break
               except (urllib.error.HTTPError,urllib.error.URLError,KeyError):pass
               time.sleep(12)
@@ -69,8 +70,16 @@ jobs:
           wrapkey=hashlib.sha256(shared+tag+b':wrap').digest()
           envelope=base64.b64decode(payload['envelopes'][part])
           contentkey=AESGCM(wrapkey).decrypt(envelope[:12],envelope[12:],tag)
-          with urllib.request.urlopen(payload['url'],timeout=60) as r:cipher=r.read()
-          if hashlib.sha256(cipher).hexdigest()!=payload['sha256']:raise RuntimeError('Input checksum mismatch')
+          cipher=None
+          for attempt in range(4):
+              try:
+                  got=gdown.download(id=payload['driveId'],output='private/input.aesgcm',quiet=True)
+                  if got:
+                      value=Path(got).read_bytes()
+                      if hashlib.sha256(value).hexdigest()==payload['sha256']:cipher=value;break
+              except Exception as e:print('Cipher transfer retry',attempt,type(e).__name__)
+              time.sleep(5)
+          if cipher is None:raise RuntimeError('Encrypted cloud file transfer failed verification')
           data=AESGCM(contentkey).decrypt(cipher[:12],cipher[12:],tag)
           with zipfile.ZipFile(io.BytesIO(data)) as z:
               for name in z.namelist():
