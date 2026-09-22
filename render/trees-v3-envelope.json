@@ -1,0 +1,16 @@
+{
+  "task": "trees-v3-cloud-20260922",
+  "clientPublic": "6f7eddaab168c3b3f29c3cd13fe7e300ef73cc8a174349b4c7803ea111923605",
+  "sha256": "5586f4a07f0cba58f5af13160eb38fe3b09af365b7bc620046c3ceea3bbaf453",
+  "url": "https://sdmntprindiasocentral.oaiusercontent.com/files/00000000-31cc-8211-b204-a44e24993685/raw?se=2026-09-22T12%3A35%3A56Z&sp=r&sv=2026-02-06&sr=b&scid=e7890ede-bf4f-5071-a7d0-71367ada2c59&skoid=5939c452-ea83-4420-b5b4-21182254a5d3&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-22T08%3A38%3A37Z&ske=2026-09-23T08%3A38%3A37Z&sks=b&skv=2026-02-06&sig=Fczq/UaXpOAeoONaapYXlY7rSsoN%2BfTcWlHSvD6aWd0%3D",
+  "envelopes": {
+    "0": "V+v6LX8eJsd/oYHfiNnYnygrmu/fxJnO/qK5ynov4kkrwJpCdGurr/FVR/aRPO+PqY95k84MUf35e74I",
+    "1": "W3i4F2fgJp3mI3+kNg8FOSP9R+sGwSzd2aTG4lhEj0+5M/cHBa2HXVYsDkqGEtjzFe8msVa1J3mRqFjB",
+    "2": "CbThrPxwua3o5NIZMSDkTBoc2c1POKOwYDKHFD8nSFxBsUo0LqhxWMkbFw3RYQvinMhlypLt80gHgHdG",
+    "3": "hs6U1MN2IBpJEtkBjpdDCzbilbQiPYtJjntLraVPltnYy73LZrxVO/bwHYWmtrlmoUqNYevII8VQoGVe",
+    "4": "ml3UEspLh2i4Y4dc35yf+6qx2s18itnvsf6CZxl+noCNANSh8cvH6LWw9kL6M1eKBYnZT1oPQmn4OxgH",
+    "5": "HCZTWYwRD/3N7vYNBjGHYm3rfSKZfOyKRDP7A8FxT4sMgljageHewQH1PLABEdbuUedr987VKZp+gwJd",
+    "6": "o1O2hrqo9R1Aij73kr/FUb9r7OaOoA95e8vrmU1DuBKibdQB24YPVrQr4PTgolOsfb6mUOBLm86/zHs0",
+    "7": "ksIwSbxdbFZQTD2MRLE4Tw+/ayp9ks8aCEF1TqAlKx3oaHMMaacT7cTW97bOWaKzrW2HE21QR1DxJuxk"
+  }
+}
