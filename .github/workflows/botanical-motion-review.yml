@@ -1,0 +1,71 @@
+name: Review original botanical motion study
+on:
+  push:
+    branches: ['botanical-motion-study']
+    paths: ['.github/workflows/botanical-motion-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  review:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for native study export
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 120); do
+            STATUS=$(gh api repos/Roasterian/test/actions/runs/35701843692 --jq '.status')
+            if [ "$STATUS" = completed ]; then
+              RESULT=$(gh api repos/Roasterian/test/actions/runs/35701843692 --jq '.conclusion')
+              test "$RESULT" = success
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: botanical-motion-study-review
+          path: rendered-study
+          run-id: 35701843692
+          github-token: ${{ github.token }}
+      - name: Build inspectable contact sheet and metadata
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pillow
+          mkdir -p botanical-review
+          python3 <<'PY'
+          from PIL import Image, ImageDraw
+          from pathlib import Path
+          import json, shutil
+          root=Path('rendered-study')
+          images=sorted(root.glob('review-*.png'),key=lambda p:int(p.stem.split('-')[-1]))
+          sheet=Image.new('RGB',(1920,3*580),(16,32,32))
+          draw=ImageDraw.Draw(sheet)
+          for i,p in enumerate(images):
+              im=Image.open(p).convert('RGB'); im.thumbnail((960,540))
+              x=(i%2)*960;y=(i//2)*580
+              sheet.paste(im,(x,y));draw.text((x+18,y+548),f'Frame {p.stem.split("-")[-1]} / 60 fps',(230,242,222))
+          sheet.save('botanical-review/contact.jpg',quality=94)
+          data=json.loads((root/'export-metadata.json').read_text())
+          report={'streams':[{k:v for k,v in s.items() if k in ['codec_name','codec_type','width','height','r_frame_rate','avg_frame_rate','duration','nb_frames','sample_rate','channels','start_time']} for s in data['streams']], 'format':{k:v for k,v in data['format'].items() if k in ['duration','size','bit_rate']}, 'decodeErrors':(root/'decode-errors.txt').read_text(), 'status':'Original motion/sound study, NOT the full narrated edit'}
+          Path('botanical-review/export-report.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          video=root/'Botanical_Motion_Study_4K60.mp4'
+          if video.stat().st_size<90*1024*1024:
+              shutil.copy2(video,'botanical-review/Botanical_Motion_Study_4K60.mp4')
+          PY
+      - name: Store only generated study previews
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add botanical-review
+          git commit -m '[skip ci] Add generated study previews and export checks'
+          git push origin HEAD:botanical-motion-study
