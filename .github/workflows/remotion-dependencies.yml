@@ -1,0 +1,48 @@
+name: Prepare native Remotion dependencies
+on:
+  push:
+    paths:
+      - '.github/workflows/remotion-dependencies.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install matched native Remotion packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir native-remotion
+          cd native-remotion
+          npm init -y
+          VERSION="$(npm view remotion version)"
+          echo "Installing Remotion ${VERSION}"
+          npm install --save-exact \
+            "remotion@${VERSION}" \
+            "@remotion/cli@${VERSION}" \
+            "@remotion/bundler@${VERSION}" \
+            "@remotion/renderer@${VERSION}" \
+            "@remotion/media@${VERSION}" \
+            "@remotion/google-fonts@${VERSION}" \
+            react@19.0.0 react-dom@19.0.0 zod@3.22.3 \
+            @types/react@19.0.10 @types/react-dom@19.0.4 \
+            @types/node@22.13.10 typescript@5.8.2
+          node -e "console.log('Native renderer loaded:', Object.keys(require('@remotion/renderer')).join(', '))"
+          cd ..
+          tar -czf native-remotion-linux-x64.tar.gz native-remotion
+          sha256sum native-remotion-linux-x64.tar.gz > native-remotion-linux-x64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-remotion-linux-x64
+          path: |
+            native-remotion-linux-x64.tar.gz
+            native-remotion-linux-x64.sha256
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
